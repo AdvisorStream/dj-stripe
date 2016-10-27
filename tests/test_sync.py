@@ -16,8 +16,9 @@ from mock import patch
 from stripe.error import StripeError, InvalidRequestError
 
 from djstripe.models import Customer
-from djstripe.sync import sync_subscriber, sync_plans
+from djstripe.sync import sync_subscriber, sync_plans, sync_plans_from_stripe
 
+from tests import FAKE_PLAN, FAKE_PLAN_II
 from . import FAKE_CUSTOMER
 
 
@@ -116,3 +117,16 @@ class TestSyncPlans(TestCase):
 
         sync_plans()
         self.assertTrue("ERROR: Plan already exists.", sys.stdout.getvalue().strip())
+
+
+    @patch('djstripe.models.Plan.sync_from_stripe_data')
+    @patch('djstripe.models.Plan.api_list')
+    def test_sync_plan_from_stripe(
+            self, plan_api_list_mock, plan_sync_from_stripe_data_mock):
+
+        plan_api_list_mock.return_value = [FAKE_PLAN, FAKE_PLAN_II]
+        sync_plans_from_stripe()
+
+        plan_sync_from_stripe_data_mock.assert_any_call(FAKE_PLAN)
+        plan_sync_from_stripe_data_mock.assert_any_call(FAKE_PLAN_II)
+        self.assertEqual(2, plan_sync_from_stripe_data_mock.call_count)

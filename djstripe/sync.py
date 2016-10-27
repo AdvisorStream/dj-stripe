@@ -37,3 +37,12 @@ def sync_plans():
                 print("Plan created for {0}".format(plan))
             except Exception as e:
                 print("ERROR: " + str(e))
+
+
+def sync_plans_from_stripe():
+    for data in Plan.api_list():
+        try:
+            plan = Plan.sync_from_stripe_data(data)
+            print('Plan %s synced from Stripe.' % plan)
+        except Exception as e:
+            print('Error: %s' % str(e))

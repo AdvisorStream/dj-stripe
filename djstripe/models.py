@@ -43,7 +43,7 @@ from .fields import (
 )
 from .managers import ChargeManager, StripeObjectManager, SubscriptionManager, TransferManager
 from .signals import WEBHOOK_SIGNALS, webhook_processing_error
-from .utils import QuerySetMock, get_friendly_currency_amount
+from .utils import QuerySetMock, get_friendly_currency_amount, get_client_ip
 
 
 logger = logging.getLogger(__name__)
@@ -3092,7 +3092,7 @@ class WebhookEventTrigger(models.Model):
         except Exception:
             body = "(error decoding body)"
 
-        ip = request.META["REMOTE_ADDR"]
+        ip = get_client_ip(request) or '0.0.0.0'
         obj = cls.objects.create(headers=headers, body=body, remote_ip=ip)
 
         try:

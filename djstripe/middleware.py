@@ -1,12 +1,24 @@
 # -*- coding: utf-8 -*-
-from django.conf import settings
-from django.core.urlresolvers import resolve
-from django.shortcuts import redirect
+"""
+.. module:: djstripe.middleware.
+
+   :synopsis: dj-stripe middleware
+
+   Refer to SubscriptionPaymentMiddleware docstring for more info.
+
+.. moduleauthor:: @kavdev, @pydanny, @wahuneke
+"""
+from __future__ import absolute_import, division, print_function, unicode_literals
 
 import fnmatch
 
+from django.conf import settings
+from django.shortcuts import redirect
+from django.urls import resolve
+from django.utils.deprecation import MiddlewareMixin
+
+from .settings import SUBSCRIPTION_REDIRECT, subscriber_request_callback
 from .utils import subscriber_has_active_subscription
-from .settings import subscriber_request_callback
 
 
 DJSTRIPE_SUBSCRIPTION_REQUIRED_EXCEPTION_URLS = getattr(
@@ -15,20 +27,16 @@ DJSTRIPE_SUBSCRIPTION_REQUIRED_EXCEPTION_URLS = getattr(
     ()
 )
 
-DJSTRIPE_SUBSCRIPTION_REDIRECT = getattr(
-    settings,
-    "DJSTRIPE_SUBSCRIPTION_REDIRECT",
-    "djstripe:subscribe"
-)
-
 
 # So we don't have crazy long lines of code
 EXEMPT = list(DJSTRIPE_SUBSCRIPTION_REQUIRED_EXCEPTION_URLS)
 EXEMPT.append("[djstripe]")
 
 
-class SubscriptionPaymentMiddleware(object):
+class SubscriptionPaymentMiddleware(MiddlewareMixin):
     """
+    Used to redirect users from subcription-locked request destinations.
+
     Rules:
 
         * "(app_name)" means everything from this app is exempt
@@ -50,12 +58,13 @@ class SubscriptionPaymentMiddleware(object):
     """
 
     def process_request(self, request):
+        """Check the subscriber's subscription status.
 
-        # Does the request match any of the docstring rules?
+        Returns early if request does not outlined in this middleware's docstring.
+        """
         if self.is_matching_rule(request):
             return
 
-        # Finally, we check the subscriber's subscription status
         return self.check_subscription(request)
 
     def is_matching_rule(self, request):
@@ -66,7 +75,7 @@ class SubscriptionPaymentMiddleware(object):
             return True
 
         # Second we check against matches
-        match = resolve(request.path)
+        match = resolve(request.path, request.urlconf)
         if "({0})".format(match.app_name) in EXEMPT:
             return True
 
@@ -88,9 +97,8 @@ class SubscriptionPaymentMiddleware(object):
         return False
 
     def check_subscription(self, request):
-        """If the user lacks an active subscription, redirect to subscribe."""
-
+        """Redirect to the subscribe page if the user lacks an active subscription."""
         subscriber = subscriber_request_callback(request)
 
         if not subscriber_has_active_subscription(subscriber):
-            return redirect(DJSTRIPE_SUBSCRIPTION_REDIRECT)
+            return redirect(SUBSCRIPTION_REDIRECT)

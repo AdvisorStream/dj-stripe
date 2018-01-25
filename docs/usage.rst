@@ -66,7 +66,7 @@ Using this example any request on this site that isn't on the homepage, about, s
 
 .. note::
 
-    The extensive list of rules for this feature can be found at https://github.com/pydanny/dj-stripe/blob/master/djstripe/middleware.py.
+    The extensive list of rules for this feature can be found at https://github.com/dj-stripe/dj-stripe/blob/master/djstripe/middleware.py.
 
 .. seealso::
 
@@ -147,7 +147,7 @@ If you want to quickly constrain a single Function-Based View, the ``djstripe.de
     @login_required
     @subscription_payment_required
     def my_constrained_view(request):
-        return HttpReponse("I like cheese")
+        return HttpResponse("I like cheese")
 
 
 Don't do this!
@@ -196,9 +196,9 @@ Described is an anti-pattern. View logic belongs in views.py, not urls.py.
 Extending Subscriptions
 =======================
 
-``CurrentSubscription.extend(*delta*)``
+``Subscription.extend(*delta*)``
 
-Subscriptions can be extended by using the ``CurrentSubscription.extend`` method, which takes a positive ``timedelta`` as its only property. This method is useful if you want to offer time-cards, gift-cards, or some other external way of subscribing users or extending subscriptions, while keeping the billing handling within Stripe.
+Subscriptions can be extended by using the ``Subscription.extend`` method, which takes a positive ``timedelta`` as its only property. This method is useful if you want to offer time-cards, gift-cards, or some other external way of subscribing users or extending subscriptions, while keeping the billing handling within Stripe.
 
 .. warning::
 

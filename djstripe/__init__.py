@@ -1,23 +1,23 @@
-from __future__ import unicode_literals
-import warnings
+"""
+.. module:: djstripe.
 
-from django import get_version as get_django_version
+  :synopsis: dj-stripe - Django + Stripe Made Easy
+"""
+from __future__ import absolute_import, division, print_function, unicode_literals
+import pkg_resources
 
-__title__ = "dj-stripe"
-__summary__ = "Django + Stripe Made Easy"
-__uri__ = "https://github.com/pydanny/dj-stripe/"
+import stripe
 
-__version__ = "0.9.0.dev"
+from . import checks  # noqa: Register the checks
 
-__author__ = "Daniel Greenfeld"
-__email__ = "pydanny@gmail.com"
 
-__license__ = "BSD"
-__license__ = "License :: OSI Approved :: BSD License"
-__copyright__ = "Copyright 2015 Daniel Greenfeld"
+__version__ = pkg_resources.require("dj-stripe")[0].version
 
-if get_django_version() <= '1.7.x':
-    msg = "dj-stripe deprecation notice: Django 1.7 and lower are no longer\n" \
-        "supported. Please upgrade to Django 1.8 or higher.\n" \
-        "Reference: https://github.com/pydanny/dj-stripe/issues/275"
-    warnings.warn(msg)
+
+# Set app info
+# https://stripe.com/docs/building-plugins#setappinfo
+stripe.set_app_info(
+    "dj-stripe",
+    version=__version__,
+    url="https://github.com/dj-stripe/dj-stripe"
+)

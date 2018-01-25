@@ -1,8 +1,12 @@
 # -*- coding: utf-8 -*-
-from __future__ import unicode_literals
+from __future__ import (
+    absolute_import, division, print_function, unicode_literals
+)
 
+import django.db.models.deletion
 from django.conf import settings
-from django.db import models, migrations
+from django.db import migrations, models
+
 
 # Can't use the callable because the app registry is not ready yet.
 # Really trusting users here... bad idea? probably.
@@ -20,7 +24,7 @@ class Migration(migrations.Migration):
         migrations.AlterField(
             model_name='customer',
             name='subscriber',
-            field=models.OneToOneField(null=True, to=DJSTRIPE_UNSAFE_SUBSCRIBER_MODEL),
+            field=models.OneToOneField(null=True, on_delete=django.db.models.deletion.CASCADE, to=DJSTRIPE_UNSAFE_SUBSCRIBER_MODEL),
             preserve_default=True,
         ),
     ]

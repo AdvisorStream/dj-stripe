@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-.. module:: dj-stripe.contrib.rest_framework.urls
-    :synopsis: dj-stripe url REST routing for Subscription.
+.. module:: dj-stripe.contrib.rest_framework.urls.
+
+    :synopsis: URL routes for the dj-stripe REST API.
 
 .. moduleauthor:: Philippe Luickx (@philippeluickx)
 
@@ -16,14 +17,16 @@ Wire this into the root URLConf this way::
 
 """
 
-from __future__ import unicode_literals
+from __future__ import absolute_import, division, print_function, unicode_literals
+
 from django.conf.urls import url
 
 from . import views
 
 
-urlpatterns = [
+app_name = "djstripe_rest_framework"
 
+urlpatterns = [
     # REST api
     url(
         r"^subscription/$",

@@ -63,47 +63,6 @@ Usage:
     </ul>
 
 
-Adding a custom plan that is outside of stripe
------------------------------------------------
-
-Sometimes you want a custom plan for per-customer billing. Or perhaps you are providing a special free-for-open-source plan. In which case, `djstripe.settings.PLAN_CHOICES` is your friend:
-
-.. code-block:: python
-
-    #!/usr/bin/env python
-    # -*- coding: utf-8 -*-
-
-    from django.contrib.auth.models import AbstractUser
-    from django.db import models
-    from django.utils.translation import ugettext_lazy as _
-
-    from djstripe.settings import PLAN_CHOICES
-    from djstripe.signals import subscription_made
-
-    CUSTOM_CHOICES = (
-        ("custom", "Custom"),
-    )
-
-    CUSTOMIZED_CHOICES = PLAN_CHOICES + CUSTOM_CHOICES
-
-    class User(AbstractUser):
-
-        plan = models.CharField(_("plan"), choices=CUSTOMIZED_CHOICES)
-
-        def __unicode__(self):
-            return self.username
-
-
-    @receiver(subscription_made)
-    def my_callback(sender, **kwargs):
-        # Updates the User record any time the subscription is changed.
-        user = User.objects.get(customer__stripe_id=kwargs['stripe_response'].customer)
-
-        # Only update users with non-custom choices
-        if user.plan in [x[0] for x in PLAN_CHOICES]:
-            user.plan = kwargs['plan']
-            user.save()
-
 Making individual purchases
 ---------------------------
 
@@ -125,7 +84,7 @@ On the subscriber's customer object, use the charge method to generate a Stripe 
     amount = Decimal(10.00)
     customer.charge(amount)
 
-Source code for the Customer.charge method is at https://github.com/pydanny/dj-stripe/blob/master/djstripe/models.py#L412-L430
+Source code for the Customer.charge method is at https://github.com/dj-stripe/dj-stripe/blob/master/djstripe/models.py
 
 REST API
 --------
@@ -166,6 +125,8 @@ DELETE will cancel the current subscription, based on the settings.
     - input
         - stripe_token (string)
         - plan (string)
+        - charge_immediately (boolean, optional)
+          - Does not send an invoice to the Customer immediately
 
     - output (201)
         - stripe_token (string)

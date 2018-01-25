@@ -1,11 +1,12 @@
-from __future__ import unicode_literals
-from django.conf.urls import url, include
+from __future__ import absolute_import, division, print_function, unicode_literals
 
+from django.conf.urls import include, url
 from django.http import HttpResponse
 
 
 def empty_view(request):
     return HttpResponse()
+
 
 urlpatterns = [
     url(

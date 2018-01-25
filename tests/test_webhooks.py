@@ -1,257 +1,171 @@
-from __future__ import unicode_literals
-import decimal
-import json
+"""
+.. module:: dj-stripe.tests.test_webhooks
+   :synopsis: dj-stripe Webhook Tests.
 
-from django.core.urlresolvers import reverse
+.. moduleauthor:: Alex Kavanaugh (@kavdev)
+.. moduleauthor:: Lee Skillen (@lskillen)
+
+"""
+from __future__ import absolute_import, division, print_function, unicode_literals
+
+import json
+from collections import defaultdict
+from copy import deepcopy
+
 from django.test import TestCase
 from django.test.client import Client
+from django.urls import reverse
+from mock import Mock, PropertyMock, call, patch
 
-from mock import patch
+from djstripe import views, webhooks
+from djstripe.models import Event, WebhookEventTrigger
+from djstripe.webhooks import TEST_EVENT_ID, call_handlers, handler, handler_all
 
-from djstripe.models import Event, EventProcessingException, Transfer
-from tests.test_transfer import TRANSFER_CREATED_TEST_DATA
+from . import FAKE_EVENT_TEST_CHARGE_SUCCEEDED, FAKE_EVENT_TRANSFER_CREATED, FAKE_TRANSFER
+
+
+def mock_webhook_handler(webhook_event_trigger):
+    webhook_event_trigger.process()
 
 
 class TestWebhook(TestCase):
 
-    @patch("stripe.Event.retrieve")
-    def test_webhook_with_transfer_event(self, StripeEventMock):
-        data = {
-            "created": 1348360173,
-            "data": {
-                "object": {
-                    "amount": 455,
-                    "currency": "usd",
-                    "date": 1348876800,
-                    "description": None,
-                    "id": "ach_XXXXXXXXXXXX",
-                    "object": "transfer",
-                    "other_transfers": [],
-                    "status": "pending",
-                    "summary": {
-                        "adjustment_count": 0,
-                        "adjustment_fee_details": [],
-                        "adjustment_fees": 0,
-                        "adjustment_gross": 0,
-                        "charge_count": 1,
-                        "charge_fee_details": [{
-                            "amount": 45,
-                            "application": None,
-                            "currency": "usd",
-                            "description": None,
-                            "type": "stripe_fee"
-                        }],
-                        "charge_fees": 45,
-                        "charge_gross": 500,
-                        "collected_fee_count": 0,
-                        "collected_fee_gross": 0,
-                        "currency": "usd",
-                        "net": 455,
-                        "refund_count": 0,
-                        "refund_fees": 0,
-                        "refund_gross": 0,
-                        "validation_count": 0,
-                        "validation_fees": 0
-                    }
-                }
-            },
-            "id": "evt_XXXXXXXXXXXXx",
-            "livemode": True,
-            "object": "event",
-            "pending_webhooks": 1,
-            "type": "transfer.created"
-        }
-        StripeEventMock.return_value.to_dict.return_value = data
-        msg = json.dumps(data)
-        resp = Client().post(
+    def _send_event(self, event_data):
+        return Client().post(
             reverse("djstripe:webhook"),
-            msg,
-            content_type="application/json"
+            json.dumps(event_data),
+            content_type="application/json",
+            HTTP_STRIPE_SIGNATURE="PLACEHOLDER"
         )
-        self.assertEquals(resp.status_code, 200)
-        self.assertTrue(Event.objects.filter(kind="transfer.created").exists())
 
+    @patch("stripe.Transfer.retrieve", return_value=deepcopy(FAKE_TRANSFER))
     @patch("stripe.Event.retrieve")
-    def test_webhook_with_transfer_event_duplicate(self, StripeEventMock):
-        data = {
-            "created": 1348360173,
-            "data": {
-                "object": {
-                    "amount": 455,
-                    "currency": "usd",
-                    "date": 1348876800,
-                    "description": None,
-                    "id": "ach_XXXXXXXXXXXX",
-                    "object": "transfer",
-                    "other_transfers": [],
-                    "status": "pending",
-                    "summary": {
-                        "adjustment_count": 0,
-                        "adjustment_fee_details": [],
-                        "adjustment_fees": 0,
-                        "adjustment_gross": 0,
-                        "charge_count": 1,
-                        "charge_fee_details": [{
-                            "amount": 45,
-                            "application": None,
-                            "currency": "usd",
-                            "description": None,
-                            "type": "stripe_fee"
-                        }],
-                        "charge_fees": 45,
-                        "charge_gross": 500,
-                        "collected_fee_count": 0,
-                        "collected_fee_gross": 0,
-                        "currency": "usd",
-                        "net": 455,
-                        "refund_count": 0,
-                        "refund_fees": 0,
-                        "refund_gross": 0,
-                        "validation_count": 0,
-                        "validation_fees": 0
-                    }
-                }
-            },
-            "id": "evt_XXXXXXXXXXXXx",
-            "livemode": True,
-            "object": "event",
-            "pending_webhooks": 1,
-            "type": "transfer.created"
-        }
-        StripeEventMock.return_value.to_dict.return_value = data
-        msg = json.dumps(data)
-        resp = Client().post(
-            reverse("djstripe:webhook"),
-            msg,
-            content_type="application/json"
-        )
-        self.assertEquals(resp.status_code, 200)
-        self.assertTrue(Event.objects.filter(kind="transfer.created").exists())
-        self.assertEqual(1, Event.objects.filter(kind="transfer.created").count())
+    def test_webhook_with_transfer_event(self, event_retrieve_mock, transfer_retrieve_mock):
+        fake_event = deepcopy(FAKE_EVENT_TRANSFER_CREATED)
+        event_retrieve_mock.return_value = fake_event
+
+        resp = self._send_event(fake_event)
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(Event.objects.filter(type="transfer.created").exists())
+
+    def test_webhook_with_test_event(self):
+        resp = self._send_event(FAKE_EVENT_TEST_CHARGE_SUCCEEDED)
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(Event.objects.filter(stripe_id=TEST_EVENT_ID).exists())
+
+    @patch.object(views.djstripe_settings, "WEBHOOK_EVENT_CALLBACK", return_value=mock_webhook_handler)
+    @patch("stripe.Transfer.retrieve", return_value=deepcopy(FAKE_TRANSFER))
+    @patch("stripe.Event.retrieve")
+    def test_webhook_with_custom_callback(
+        self, event_retrieve_mock, transfer_retrieve_mock,
+        webhook_event_callback_mock
+    ):
+        fake_event = deepcopy(FAKE_EVENT_TRANSFER_CREATED)
+        event_retrieve_mock.return_value = fake_event
+
+        resp = self._send_event(fake_event)
+        self.assertEqual(resp.status_code, 200)
+        webhook_event_trigger = WebhookEventTrigger.objects.get()
+        webhook_event_callback_mock.called_once_with(webhook_event_trigger)
+
+    @patch("stripe.Transfer.retrieve", return_value=deepcopy(FAKE_TRANSFER))
+    @patch("stripe.Event.retrieve")
+    def test_webhook_with_transfer_event_duplicate(self, event_retrieve_mock, transfer_retrieve_mock):
+        fake_event = deepcopy(FAKE_EVENT_TRANSFER_CREATED)
+        event_retrieve_mock.return_value = fake_event
+
+        resp = self._send_event(fake_event)
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(Event.objects.filter(type="transfer.created").exists())
+        self.assertEqual(1, Event.objects.filter(type="transfer.created").count())
 
         # Duplication
-        resp = Client().post(
-            reverse("djstripe:webhook"),
-            msg,
-            content_type="application/json"
-        )
+        resp = self._send_event(fake_event)
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(1, Event.objects.filter(kind="transfer.created").count())
-        self.assertEqual(1, EventProcessingException.objects.count())
+        self.assertEqual(1, Event.objects.filter(type="transfer.created").count())
 
 
-class TestTransferWebhooks(TestCase):
+class TestWebhookHandlers(TestCase):
+    def setUp(self):
+        # Reset state of registrations per test
+        patcher = patch.object(webhooks, 'registrations', new_callable=(lambda: defaultdict(list)))
+        self.addCleanup(patcher.stop)
+        self.registrations = patcher.start()
 
-    def test_transfer_created(self):
-        event = Event.objects.create(
-            stripe_id=TRANSFER_CREATED_TEST_DATA["id"],
-            kind="transfer.created",
-            livemode=True,
-            webhook_message=TRANSFER_CREATED_TEST_DATA,
-            validated_message=TRANSFER_CREATED_TEST_DATA,
-            valid=True
-        )
-        event.process()
-        transfer = Transfer.objects.get(stripe_id="tr_XXXXXXXXXXXX")
-        self.assertEquals(transfer.amount, decimal.Decimal("4.55"))
-        self.assertEquals(transfer.status, "paid")
+        patcher = patch.object(webhooks, 'registrations_global', new_callable=list)
+        self.addCleanup(patcher.stop)
+        self.registrations_global = patcher.start()
 
-    def test_transfer_paid_updates_existing_record(self):
-        event = Event.objects.create(
-            stripe_id=TRANSFER_CREATED_TEST_DATA["id"],
-            kind="transfer.created",
-            livemode=True,
-            webhook_message=TRANSFER_CREATED_TEST_DATA,
-            validated_message=TRANSFER_CREATED_TEST_DATA,
-            valid=True
-        )
-        event.process()
-        data = {
-            "created": 1364658818,
-            "data": {
-                "object": {
-                    "account": {
-                        "bank_name": "BANK OF AMERICA, N.A.",
-                        "country": "US",
-                        "last4": "9999",
-                        "object": "bank_account"
-                    },
-                    "amount": 455,
-                    "currency": "usd",
-                    "date": 1364601600,
-                    "description": "STRIPE TRANSFER",
-                    "fee": 0,
-                    "fee_details": [],
-                    "id": "tr_XXXXXXXXXXXX",
-                    "livemode": True,
-                    "object": "transfer",
-                    "other_transfers": [],
-                    "status": "paid",
-                    "summary": {
-                        "adjustment_count": 0,
-                        "adjustment_fee_details": [],
-                        "adjustment_fees": 0,
-                        "adjustment_gross": 0,
-                        "charge_count": 1,
-                        "charge_fee_details": [{
-                            "amount": 45,
-                            "application": None,
-                            "currency": "usd",
-                            "description": None,
-                            "type": "stripe_fee"
-                        }],
-                        "charge_fees": 45,
-                        "charge_gross": 500,
-                        "collected_fee_count": 0,
-                        "collected_fee_gross": 0,
-                        "collected_fee_refund_count": 0,
-                        "collected_fee_refund_gross": 0,
-                        "currency": "usd",
-                        "net": 455,
-                        "refund_count": 0,
-                        "refund_fee_details": [],
-                        "refund_fees": 0,
-                        "refund_gross": 0,
-                        "validation_count": 0,
-                        "validation_fees": 0
-                    },
-                    "transactions": {
-                        "count": 1,
-                        "data": [{
-                            "amount": 500,
-                            "created": 1364064631,
-                            "description": None,
-                            "fee": 45,
-                            "fee_details": [{
-                                "amount": 45,
-                                "application": None,
-                                "currency": "usd",
-                                "description": "Stripe processing fees",
-                                "type": "stripe_fee"
-                            }],
-                            "id": "ch_XXXXXXXXXX",
-                            "net": 455,
-                            "type": "charge"
-                        }],
-                        "object": "list",
-                        "url": "/v1/transfers/XX/transactions"
-                    }
-                }
-            },
-            "id": "evt_YYYYYYYYYYYY",
-            "livemode": True,
-            "object": "event",
-            "pending_webhooks": 1,
-            "type": "transfer.paid"
-        }
-        paid_event = Event.objects.create(
-            stripe_id=data["id"],
-            kind="transfer.paid",
-            livemode=True,
-            webhook_message=data,
-            validated_message=data,
-            valid=True
-        )
-        paid_event.process()
-        transfer = Transfer.objects.get(stripe_id="tr_XXXXXXXXXXXX")
-        self.assertEquals(transfer.status, "paid")
+    def test_global_handler_registration(self):
+        func_mock = Mock()
+        handler_all()(func_mock)
+        event = self._call_handlers("wib.ble", {"data": "foo"})  # handled
+        self.assertEqual(1, func_mock.call_count)
+        func_mock.assert_called_with(event=event)
+
+    def test_event_handler_registration(self):
+        global_func_mock = Mock()
+        handler_all()(global_func_mock)
+        func_mock = Mock()
+        handler("foo")(func_mock)
+        event = self._call_handlers("foo.bar", {"data": "foo"})  # handled
+        self._call_handlers("bar.foo", {"data": "foo"})  # not handled
+        self.assertEqual(2, global_func_mock.call_count)  # called each time
+        self.assertEqual(1, func_mock.call_count)
+        func_mock.assert_called_with(event=event)
+
+    def test_event_subtype_handler_registration(self):
+        global_func_mock = Mock()
+        handler_all()(global_func_mock)
+        func_mock = Mock()
+        handler("foo.bar")(func_mock)
+        event1 = self._call_handlers("foo.bar", {"data": "foo"})  # handled
+        event2 = self._call_handlers("foo.bar.wib", {"data": "foo"})  # handled
+        self._call_handlers("foo.baz", {"data": "foo"})  # not handled
+        self.assertEqual(3, global_func_mock.call_count)  # called each time
+        self.assertEqual(2, func_mock.call_count)
+        func_mock.assert_has_calls([
+            call(event=event1),
+            call(event=event2)
+        ])
+
+    def test_global_handler_registration_with_function(self):
+        func_mock = Mock()
+        handler_all(func_mock)
+        event = self._call_handlers("wib.ble", {"data": "foo"})  # handled
+        self.assertEqual(1, func_mock.call_count)
+        func_mock.assert_called_with(event=event)
+
+    def test_event_handle_registation_with_string(self):
+        func_mock = Mock()
+        handler("foo")(func_mock)
+        event = self._call_handlers("foo.bar", {"data": "foo"})  # handled
+        self.assertEqual(1, func_mock.call_count)
+        func_mock.assert_called_with(event=event)
+
+    def test_event_handle_registation_with_list_of_strings(self):
+        func_mock = Mock()
+        handler("foo", "bar")(func_mock)
+        event1 = self._call_handlers("foo.bar", {"data": "foo"})  # handled
+        event2 = self._call_handlers("bar.foo", {"data": "bar"})  # handled
+        self.assertEqual(2, func_mock.call_count)
+        func_mock.assert_has_calls([
+            call(event=event1),
+            call(event=event2)
+        ])
+
+    #
+    # Helpers
+    #
+
+    @staticmethod
+    def _call_handlers(event_spec, data):
+        event = Mock(spec=Event)
+        parts = event_spec.split(".")
+        category = parts[0]
+        verb = ".".join(parts[1:])
+        type(event).parts = PropertyMock(return_value=parts)
+        type(event).category = PropertyMock(return_value=category)
+        type(event).verb = PropertyMock(return_value=verb)
+        call_handlers(event=event)
+        return event
